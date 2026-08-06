@@ -1,0 +1,27 @@
+# 로컬에서 테스트용 PostgreSQL 을 직접 띄우고 싶을 때.
+# Testcontainers 를 쓰면 이게 없어도 되지만, 컨테이너 기동 시간을 아끼려면 이쪽이 빠르다.
+#
+#   docker compose up -d
+#   TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5433/dbtestlab pytest
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: db-test-lab-postgres
+    environment:
+      POSTGRES_DB: dbtestlab
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: Asia/Seoul
+    ports:
+      - "5433:5432"
+    # 테스트 DB 는 내구성이 필요 없다. 껐다 켜면 되니 속도를 택한다.
+    command: >
+      postgres
+      -c fsync=off
+      -c full_page_writes=off
+      -c synchronous_commit=off
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dbtestlab"]
+      interval: 3s
+      timeout: 3s
+      retries: 10

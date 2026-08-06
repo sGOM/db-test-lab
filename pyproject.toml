@@ -1,0 +1,40 @@
+[project]
+name = "db-test-lab"
+version = "0.1.0"
+description = "PostgreSQL 데이터베이스 테스트 코드 실습장 (pytest + SQLAlchemy + Testcontainers)"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-xdist>=3.6",
+    "testcontainers[postgres]>=4.9",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dbtestlab"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --strict-markers --tb=short"
+markers = [
+    "concurrency: 커밋이 필요한 동시성 테스트 (롤백 격리를 쓰지 않음)",
+    "slow: 실행이 느린 테스트",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
