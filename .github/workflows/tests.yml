@@ -4,6 +4,8 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # Actions 를 나중에 켰거나 트리거가 안 걸렸을 때 손으로 돌릴 수 있게 열어둔다.
+  workflow_dispatch:
 
 jobs:
   pytest:
@@ -43,6 +45,11 @@ jobs:
       - name: ruff
         run: |
           ruff check .
+          ruff format --check .
 
       - name: pytest
         run: pytest
+
+      # 병렬 실행에서 워커별 DB 격리가 실제로 동작하는지까지 확인한다.
+      - name: pytest (병렬)
+        run: pytest -n 2

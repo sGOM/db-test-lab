@@ -22,6 +22,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dbtestlab"]
+# 마이그레이션 SQL 은 저장소 루트가 단일 소스지만, 휠에도 같이 실어야
+# editable 설치가 아닌 환경에서 dbtestlab.db.migrations_dir() 가 찾을 수 있다.
+force-include = { "migrations" = "dbtestlab/migrations" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

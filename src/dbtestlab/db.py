@@ -7,14 +7,50 @@ Alembic 을 얹고 싶으면 이 함수만 갈아끼우면 된다.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 from sqlalchemy import Connection, Engine, create_engine, text
 
-MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
+MIGRATIONS_DIR_ENV = "DBTESTLAB_MIGRATIONS_DIR"
 _FILENAME_RE = re.compile(r"^V(?P<version>\d+)__(?P<name>.+)\.sql$")
+
+
+def _has_migrations(directory: Path) -> bool:
+    return directory.is_dir() and any(directory.glob("V*.sql"))
+
+
+@cache
+def migrations_dir() -> Path:
+    """마이그레이션 디렉터리를 찾는다.
+
+    ``parents[2]`` 로 고정하면 소스 체크아웃에서만 동작하고 휠로 설치하면 깨진다.
+    실제로 파일이 있는 곳을 순서대로 찾는다:
+
+    1. ``DBTESTLAB_MIGRATIONS_DIR`` 환경변수 (명시적 지정이 언제나 이긴다)
+    2. 패키지와 함께 배포된 ``dbtestlab/migrations`` (휠 설치 — pyproject 의 force-include)
+    3. 패키지 상위 디렉터리의 ``migrations`` (소스 체크아웃 / editable 설치)
+    """
+    override = os.getenv(MIGRATIONS_DIR_ENV)
+    if override:
+        directory = Path(override).expanduser().resolve()
+        if not _has_migrations(directory):
+            raise RuntimeError(
+                f"{MIGRATIONS_DIR_ENV} 가 가리키는 곳에 V*.sql 이 없습니다: {directory}"
+            )
+        return directory
+
+    here = Path(__file__).resolve()
+    for candidate in (here.parent / "migrations", *(p / "migrations" for p in here.parents)):
+        if _has_migrations(candidate):
+            return candidate
+
+    raise RuntimeError(
+        f"마이그레이션 디렉터리를 찾지 못했습니다. {MIGRATIONS_DIR_ENV} 환경변수로 직접 지정하세요."
+    )
 
 
 @dataclass(frozen=True)
@@ -37,7 +73,8 @@ def create_db_engine(url: str, *, echo: bool = False) -> Engine:
     return create_engine(url, echo=echo, pool_pre_ping=True, future=True)
 
 
-def discover_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
+def discover_migrations(directory: Path | None = None) -> list[Migration]:
+    directory = directory if directory is not None else migrations_dir()
     migrations: list[Migration] = []
     for path in sorted(directory.glob("V*.sql")):
         matched = _FILENAME_RE.match(path.name)
@@ -58,7 +95,7 @@ def discover_migrations(directory: Path = MIGRATIONS_DIR) -> list[Migration]:
     return migrations
 
 
-def migrate(engine: Engine, directory: Path = MIGRATIONS_DIR) -> list[Migration]:
+def migrate(engine: Engine, directory: Path | None = None) -> list[Migration]:
     """아직 적용되지 않은 마이그레이션만 순서대로 실행하고, 적용한 목록을 돌려준다."""
     migrations = discover_migrations(directory)
 
