@@ -6,9 +6,10 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import Engine, inspect, text
 
-from dbtestlab.db import migrate
+from dbtestlab.db import MIGRATIONS_DIR_ENV, discover_migrations, migrate, migrations_dir
 from dbtestlab.models import Base
 
 
@@ -26,6 +27,42 @@ def test_마이그레이션은_멱등하다(engine: Engine):
     newly_applied = migrate(engine)
 
     assert newly_applied == []
+
+
+def test_마이그레이션_디렉터리를_설치_형태와_무관하게_찾는다():
+    """경로를 ``parents[2]`` 로 고정하면 소스 체크아웃에서만 동작한다.
+
+    실제로 ``V*.sql`` 이 있는 곳을 찾아야 휠 설치·다른 작업 디렉터리에서도 깨지지 않는다.
+    """
+    directory = migrations_dir()
+
+    assert directory.is_dir()
+    assert (directory / "V1__init.sql").is_file()
+    assert [m.version for m in discover_migrations()] == [1]
+
+
+def test_마이그레이션_디렉터리는_환경변수로_바꿀_수_있다(tmp_path, monkeypatch):
+    (tmp_path / "V1__init.sql").write_text("SELECT 1", encoding="utf-8")
+    monkeypatch.setenv(MIGRATIONS_DIR_ENV, str(tmp_path))
+    migrations_dir.cache_clear()
+
+    try:
+        assert migrations_dir() == tmp_path.resolve()
+    finally:
+        monkeypatch.delenv(MIGRATIONS_DIR_ENV)
+        migrations_dir.cache_clear()
+
+
+def test_마이그레이션_디렉터리가_비어있으면_바로_알려준다(tmp_path, monkeypatch):
+    monkeypatch.setenv(MIGRATIONS_DIR_ENV, str(tmp_path))  # V*.sql 이 없는 빈 디렉터리
+    migrations_dir.cache_clear()
+
+    try:
+        with pytest.raises(RuntimeError, match="V\\*.sql"):
+            migrations_dir()
+    finally:
+        monkeypatch.delenv(MIGRATIONS_DIR_ENV)
+        migrations_dir.cache_clear()
 
 
 def test_테이블이_모두_존재한다(connection):

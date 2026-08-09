@@ -33,6 +33,10 @@ from dbtestlab.planner import (
 
 pytestmark = pytest.mark.slow
 
+# 재현용 테이블은 전용 스키마에 만든다. public 에 두면 동시성 테스트의
+# truncate_all() (public 전체 TRUNCATE) 이 실행 순서에 따라 이 테이블까지 비워버린다.
+REPRO_SCHEMA = "repro"
+
 # 구 인스턴스(통계에 반영돼 있음) / 새 인스턴스(웹서버 재기동으로 방금 적재됨)
 WS_OLD = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 WS_NEW = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -93,14 +97,17 @@ def repro_conn(engine: Engine) -> Iterator[Connection]:
       auto-analyze 관련 통계(pg_stat_user_tables)도 커밋돼야 갱신된다.
     - ``autovacuum_enabled = off``: "auto-analyze 가 아직 안 돈 공백"을 고정해
       재현을 결정적으로 만든다.
+    - 전용 스키마 + ``search_path``: 테이블은 ``repro`` 에 두되 SQL 은 그대로
+      ``va`` / ``evt`` 로 쓴다. public 을 건드리는 다른 테스트와 완전히 분리된다.
     """
     conn = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
 
     # 병렬 플랜이 끼면 노드 구조와 loops 해석이 흔들린다. 재현 목적상 끈다.
     conn.execute(text("SET max_parallel_workers_per_gather = 0"))
 
-    conn.execute(text("DROP TABLE IF EXISTS evt"))
-    conn.execute(text("DROP TABLE IF EXISTS va"))
+    conn.execute(text(f"DROP SCHEMA IF EXISTS {REPRO_SCHEMA} CASCADE"))
+    conn.execute(text(f"CREATE SCHEMA {REPRO_SCHEMA}"))
+    conn.execute(text(f"SET search_path TO {REPRO_SCHEMA}, public"))
     conn.execute(
         text(
             """
@@ -150,8 +157,7 @@ def repro_conn(engine: Engine) -> Iterator[Connection]:
     try:
         yield conn
     finally:
-        conn.execute(text("DROP TABLE IF EXISTS evt"))
-        conn.execute(text("DROP TABLE IF EXISTS va"))
+        conn.execute(text(f"DROP SCHEMA IF EXISTS {REPRO_SCHEMA} CASCADE"))
         conn.close()
 
 
@@ -183,9 +189,10 @@ def test_적재_직후_통계에는_새_uuid가_없다(after_restart: Connection
             """
             SELECT n_distinct, most_common_vals::text AS mcv
               FROM pg_stats
-             WHERE tablename = 'va' AND attname = 'ws_id'
+             WHERE schemaname = :schema AND tablename = 'va' AND attname = 'ws_id'
             """
-        )
+        ),
+        {"schema": REPRO_SCHEMA},
     ).one()
 
     # 마지막 ANALYZE 시점에는 구 uuid 뿐이었다 → MCV 도 n_distinct 도 그 시점에 멈춰 있다.
@@ -212,9 +219,10 @@ def test_auto_analyze_대상이지만_아직_돌지_않았다(after_restart: Con
                    current_setting('autovacuum_analyze_scale_factor')::float AS scale_factor
               FROM pg_stat_user_tables s
               JOIN pg_class c ON c.oid = s.relid
-             WHERE s.relname = 'va'
+             WHERE s.schemaname = :schema AND s.relname = 'va'
             """
-        )
+        ),
+        {"schema": REPRO_SCHEMA},
     ).one()
 
     trigger_point = row.threshold + row.scale_factor * row.reltuples
@@ -304,9 +312,10 @@ def test_ANALYZE_후_통계에_새_uuid가_들어온다(after_restart: Connectio
             """
             SELECT n_distinct, most_common_vals::text AS mcv, most_common_freqs
               FROM pg_stats
-             WHERE tablename = 'va' AND attname = 'ws_id'
+             WHERE schemaname = :schema AND tablename = 'va' AND attname = 'ws_id'
             """
-        )
+        ),
+        {"schema": REPRO_SCHEMA},
     ).one()
 
     assert row.n_distinct == 2

@@ -31,6 +31,10 @@ test:  ## 전체 테스트 (docker compose 로 띄운 DB 사용)
 test-fast:  ## slow 마커를 뺀 빠른 테스트만
 	TEST_DATABASE_URL=$(COMPOSE_DB_URL) $(PYTEST) -m "not slow"
 
+.PHONY: test-parallel
+test-parallel:  ## xdist 로 병렬 실행 (워커마다 DB 를 따로 만든다)
+	TEST_DATABASE_URL=$(COMPOSE_DB_URL) $(PYTEST) -n auto
+
 .PHONY: test-tc
 test-tc:  ## Testcontainers 로 DB를 직접 띄워서 테스트 (TEST_DATABASE_URL 미지정)
 	$(PYTEST)

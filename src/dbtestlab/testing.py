@@ -45,33 +45,37 @@ class QueryCounter:
 def count_queries(target: Engine | Connection | Session) -> Iterator[QueryCounter]:
     """블록 안에서 실행된 SQL 문을 센다.
 
+    커넥션(또는 커넥션에 바인딩된 세션)을 주면 **그 커넥션에서 나간 SQL 만** 센다.
+    엔진에 리스너를 걸면 같은 엔진을 쓰는 다른 커넥션·스레드의 쿼리까지 섞여 들어와서
+    개수 단언이 조용히 흔들린다.
+
     사용 예::
 
         with count_queries(session) as counter:
             repository.total_quantity_per_member_eager(session)
         assert counter.count == 2
     """
-    engine = _resolve_engine(target)
+    listen_target = _resolve_listen_target(target)
     counter = QueryCounter()
 
     def _on_execute(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
         counter.statements.append(_WHITESPACE.sub(" ", statement).strip())
 
-    event.listen(engine, "before_cursor_execute", _on_execute)
+    event.listen(listen_target, "before_cursor_execute", _on_execute)
     try:
         yield counter
     finally:
-        event.remove(engine, "before_cursor_execute", _on_execute)
+        event.remove(listen_target, "before_cursor_execute", _on_execute)
 
 
-def _resolve_engine(target: Engine | Connection | Session) -> Engine:
-    if isinstance(target, Engine):
+def _resolve_listen_target(target: Engine | Connection | Session) -> Engine | Connection:
+    """리스너를 걸 대상. 좁힐 수 있으면 커넥션까지 좁힌다."""
+    if isinstance(target, Engine | Connection):
         return target
-    if isinstance(target, Connection):
-        return target.engine
     if isinstance(target, Session):
-        bind = target.get_bind()
-        return bind.engine if isinstance(bind, Connection) else bind
+        # 세션이 커넥션에 바인딩돼 있으면 그 커넥션만 본다 (테스트 격리 픽스처가 이 경우).
+        # 엔진에 바인딩돼 있으면 실행 전까지 커넥션이 정해지지 않으므로 엔진에 건다.
+        return target.get_bind()
     raise TypeError(f"Engine/Connection/Session 만 지원합니다: {type(target)!r}")
 
 

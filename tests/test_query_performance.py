@@ -107,6 +107,22 @@ def test_상태별_최신순_조회는_복합_인덱스를_탈_수_있다(sessio
     assert "idx_orders_status_ordered_at" in str(plan), f"플랜 노드: {node_types(plan)}"
 
 
+def test_쿼리_카운터는_다른_커넥션의_쿼리를_세지_않는다(session, engine):
+    """계측이 엔진 전체를 보면 병렬·멀티스레드에서 개수 단언이 조용히 흔들린다.
+
+    같은 엔진의 다른 커넥션에서 쿼리를 날려도 세션 기준 카운터는 움직이지 않아야 한다.
+    """
+    session.execute(text("SELECT 1"))  # 세션의 SAVEPOINT 를 미리 열어둔다
+
+    with count_queries(session) as counter:
+        session.execute(text("SELECT 1"))
+        with engine.connect() as other:
+            other.execute(text("SELECT 1"))
+            other.execute(text("SELECT 2"))
+
+    assert counter.count == 1, f"실행된 쿼리:\n{counter.dump()}"
+
+
 def test_페이징은_정렬이_있어야_결과가_안정적이다(session, make_member, make_order):
     """ORDER BY 없는 LIMIT/OFFSET 은 순서가 보장되지 않는다 — 페이지 간 중복·누락의 원인."""
     member = make_member()
