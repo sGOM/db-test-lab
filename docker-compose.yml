@@ -3,6 +3,11 @@
 #
 #   docker compose up -d
 #   TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5433/dbtestlab pytest
+#
+# 다른 프로젝트의 PostgreSQL 이 이미 떠 있으면 호스트 포트만 갈아끼우면 된다.
+#   DB_TEST_LAB_PG_PORT=5434 docker compose up -d
+name: db-test-lab
+
 services:
   db:
     image: postgres:16-alpine
@@ -13,7 +18,7 @@ services:
       POSTGRES_PASSWORD: postgres
       TZ: Asia/Seoul
     ports:
-      - "5433:5432"
+      - "${DB_TEST_LAB_PG_PORT:-5433}:5432"
     # 테스트 DB 는 내구성이 필요 없다. 껐다 켜면 되니 속도를 택한다.
     command: >
       postgres
